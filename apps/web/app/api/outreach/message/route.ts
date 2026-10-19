@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const lead = body.lead as { name?: string; contact?: string; platform?: string; company?: string; notes?: string } | undefined;
     if (!lead || !lead.name) return err('missing_lead', 'lead (with name) is required.', 400);
-    const objective = String(body.objective ?? 'Introduce TYPE X and start a conversation').trim();
+    const objective = String(body.objective ?? 'Introduce CLINT X and start a conversation').trim();
     const style = (body.style ?? {}) as AIStyle;
     const instruction =
       `Write a short, personal first message (max 60 words) to a potential client.\n` +

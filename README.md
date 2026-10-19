@@ -1,6 +1,6 @@
-# TYPE X Core — Phase 1
+# CLINT X Core — Phase 1
 
-The real foundation of **TYPE X**: a universal AI execution platform
+The real foundation of **CLINT X**: a universal AI execution platform
 (AI agent + platform keyboard + platform connection).
 
 This monorepo holds the working core: typed domain models, the AI gateway,
@@ -12,7 +12,7 @@ success — every adapter returns `ok: false` with an honest code when it
 cannot do the thing.
 
 ```
-┌────────────────────────────── TYPE X CORE ──────────────────────────────┐
+┌────────────────────────────── CLINT X CORE ──────────────────────────────┐
 │                                                                          │
 │   ┌──────────────┐        ┌──────────────────┐        ┌───────────────┐   │
 │   │  AI GATEWAY  │        │   AGENT ENGINE   │        │  CONNECTION   │   │
@@ -154,7 +154,7 @@ See `.env.example`.
 
 No `DATABASE_URL` → `getStore()` returns `MemoryStore` and prints:
 
-> `TYPE X DEMO MODE — no DATABASE_URL; using local in-memory store. Data will not persist.`
+> `CLINT X DEMO MODE — no DATABASE_URL; using local in-memory store. Data will not persist.`
 
 Everything works (agents, approvals, audit, memory) but state lives in the
 process. The UI must label this honestly — never present demo state as production.

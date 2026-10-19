@@ -1,4 +1,4 @@
-/* TYPE X server core — lazy singleton (serverless-safe). Builds the real
+/* CLINT X server core — lazy singleton (serverless-safe). Builds the real
  * stack once: registry (whatsapp + generic-web adapters), store (DEMO MODE
  * memory store when DATABASE_URL is unset), policy engine, scoped memory,
  * AI provider (local, or OpenAI/Anthropic when keys are set — server-side),

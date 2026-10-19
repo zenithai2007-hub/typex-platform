@@ -64,7 +64,7 @@ export default function SettingsPage() {
       const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), agents: agents.agents, activity: activity.events, memory: memory.items, styles: styles.styles, leads: leads.leads }, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `typex-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `clintx-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e) {
@@ -201,7 +201,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-txpurple to-txviolet flex items-center justify-center font-extrabold text-xl">T</div>
               <div>
-                <div className="font-semibold">TYPE X Owner</div>
+                <div className="font-semibold">CLINT X Owner</div>
                 <div className="text-xs text-white/50 font-mono">user: owner (single-user)</div>
               </div>
             </div>

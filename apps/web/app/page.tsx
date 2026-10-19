@@ -51,7 +51,7 @@ export default function HomePage() {
     <div>
       <PageHead
         title={`${greeting()}!`}
-        sub="TYPE X Control Center — apke agents, tasks aur approvals ek jagah."
+        sub="CLINT X Control Center — apke agents, tasks aur approvals ek jagah."
         action={
           <button className="tx-btn btn-ghost text-xs" onClick={load}>
             <Icon d={paths.refresh} className="w-4 h-4" /> Refresh

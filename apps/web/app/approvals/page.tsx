@@ -77,7 +77,7 @@ export default function ApprovalsPage() {
     <div>
       <PageHead
         title="Approvals"
-        sub="TYPE X ne ye action tayyar kiya. Aapki ijazat ke baghair kuch send nahi hoga."
+        sub="CLINT X ne ye action tayyar kiya. Aapki ijazat ke baghair kuch send nahi hoga."
         action={<button className="tx-btn btn-ghost text-xs" onClick={load}><Icon d={paths.refresh} className="w-4 h-4" /> Refresh</button>}
       />
       {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
@@ -92,7 +92,7 @@ export default function ApprovalsPage() {
             <div key={a.id} className="glass p-5">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="font-bold">TYPE X prepared this action.</div>
+                  <div className="font-bold">CLINT X prepared this action.</div>
                   <div className="text-xs text-white/50 mt-1 font-mono">
                     {a.action} · agent: {agentName(a.agentId)} · {fmtTime(a.createdAt)}
                   </div>

@@ -87,10 +87,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {/* desktop sidebar */}
       <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-60 flex-col glass border-r border-txviolet/20 z-30">
         <Link href="/" className="px-5 pt-6 pb-4">
-          <div className="text-xl font-extrabold tracking-tight">
-            TYPE <span className="text-txviolet">X</span>
-          </div>
-          <div className="text-[11px] text-white/40">Control Center</div>
+          <span className="inline-flex items-center bg-white rounded-xl px-2.5 py-1.5">
+            <img src="/clintx-logo.png" alt="Clint X" className="h-8 w-auto" draggable={false} />
+          </span>
+          <div className="text-[11px] text-white/40 mt-1.5">Control Center</div>
         </Link>
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
           {NAV.map((n) => {
@@ -123,8 +123,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
       {/* mobile top bar + bottom nav */}
       <header className="md:hidden sticky top-0 z-30 glass border-b border-txviolet/20 px-4 py-3 flex items-center justify-between">
-        <Link href="/" className="text-lg font-extrabold tracking-tight">
-          TYPE <span className="text-txviolet">X</span>
+        <Link href="/" className="inline-flex items-center">
+          <span className="inline-flex items-center bg-white rounded-lg px-2 py-1">
+            <img src="/clintx-logo.png" alt="Clint X" className="h-6 w-auto" draggable={false} />
+          </span>
         </Link>
         <button onClick={() => setCmdOpen(true)} className="tx-btn btn-ghost !px-3 !py-2 text-xs">
           <Icon d={paths.command} className="w-4 h-4" />

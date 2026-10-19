@@ -90,7 +90,7 @@ export default function ConnectionsPage() {
             {wa ? <Pill status={wa.status} /> : <Pill status="NEEDS_SETUP" />}
           </div>
           <p className="text-sm text-white/55 mt-4">
-            Connect dabane par TYPE X respond.io se <span className="text-white/80 font-semibold">wakae verify</span> karega.
+            Connect dabane par CLINT X respond.io se <span className="text-white/80 font-semibold">wakae verify</span> karega.
             {wa?.credentialsRef && <span className="block mt-1 font-mono text-xs text-white/40">credentials: {wa.credentialsRef} (key kabhi store nahi hoti)</span>}
           </p>
           <div className="flex gap-2 mt-4">
@@ -123,7 +123,7 @@ export default function ConnectionsPage() {
           </div>
           <p className="text-sm text-white/55 mt-4">
             Browser extension — Phase 2. Abhi <span className="text-white/80 font-semibold">Assisted Mode</span>:
-            TYPE X text tayyar karega, aap khud page mein paste karenge.
+            CLINT X text tayyar karega, aap khud page mein paste karenge.
           </p>
           <div className="flex gap-2 mt-4">
             <button className="tx-btn btn-ghost text-xs" disabled>Extension (Phase 2)</button>

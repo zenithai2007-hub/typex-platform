@@ -100,7 +100,7 @@ export default function OutreachPage() {
       {notice && <div className="glass-soft p-3 mb-4 text-sm text-emerald-300">{notice} <Link href="/approvals" className="underline">Approvals dekhein →</Link></div>}
 
       <div className="glass-soft p-4 mb-4 text-xs text-white/55">
-        <span className="text-txorange font-semibold">Note:</span> TYPE X bulk spam tool nahi hai. Har lead manually add hota hai
+        <span className="text-txorange font-semibold">Note:</span> CLINT X bulk spam tool nahi hai. Har lead manually add hota hai
         (source/consent lazmi hai), har message aap approve karne ke baad hi send hota hai — ek-ek karke.
       </div>
 
