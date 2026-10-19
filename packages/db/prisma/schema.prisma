@@ -1,0 +1,408 @@
+// ============================================================================
+// @typex/db — Prisma schema for TYPE X Core.
+// Provider: postgresql (Neon). `prisma generate` works with no live database;
+// PrismaClient is only instantiated when DATABASE_URL is set (see src).
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String             @id @default(cuid())
+  email            String             @unique
+  name             String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  connections      PlatformConnection[]
+  agents           Agent[]
+  keyboardProfiles KeyboardProfile[]
+  campaigns        OutreachCampaign[]
+  notifications    Notification[]
+  schedules        Schedule[]
+  automations      Automation[]
+  usages           Usage[]
+  auditLogs        AuditLog[]
+  styles           Style[]
+
+  @@index([email])
+}
+
+model Platform {
+  id               String               @id
+  name             String
+  icon             String?
+  brandColor       String?
+  connectionType   String
+  adapterVersion   String
+  status           String               @default("active")
+  capabilities     PlatformCapability[]
+  connections      PlatformConnection[]
+  agents           Agent[]
+}
+
+model PlatformCapability {
+  id         String   @id @default(cuid())
+  platformId String
+  capability String
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@index([platformId])
+}
+
+model PlatformConnection {
+  id             String       @id @default(cuid())
+  userId         String
+  platformId     String
+  status         String
+  credentialsRef String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform       Platform     @relation(fields: [platformId], references: [id])
+  agents         Agent[]
+  conversations  Conversation[]
+
+  @@index([userId])
+  @@index([platformId])
+}
+
+model KeyboardProfile {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  theme        Json?
+  perAppThemes Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Agent {
+  id             String             @id @default(cuid())
+  userId         String
+  platformId     String
+  connectionId   String?
+  name           String
+  avatar         String?
+  status         String
+  instructions   String             @db.Text
+  memoryScope    String             @default("AGENT")
+  currentTaskId  String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  lastActiveAt   DateTime           @default(now())
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform       Platform           @relation(fields: [platformId], references: [id])
+  connection     PlatformConnection? @relation(fields: [connectionId], references: [id])
+  tasks          AgentTask[]
+  memories       AgentMemory[]
+  approvals      Approval[]
+  executions     Execution[]
+  styles         AgentStyle[]
+  permissionGrants PermissionGrant[]
+  instructionHistory AgentInstruction[]
+  auditLogs      AuditLog[]
+
+  @@index([userId])
+  @@index([platformId])
+  @@index([status])
+}
+
+model AgentInstruction {
+  id        String   @id @default(cuid())
+  agentId   String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+}
+
+model AgentTask {
+  id          String      @id @default(cuid())
+  agentId     String
+  objective   String      @db.Text
+  instructions String     @db.Text
+  trigger     String?
+  status      String
+  scheduleSpec String?
+  permissions Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  agent       Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  events      TaskEvent[]
+  executions  Execution[]
+
+  @@index([agentId])
+  @@index([status])
+}
+
+model TaskEvent {
+  id        String   @id @default(cuid())
+  taskId    String
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+  task      AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model AgentMemory {
+  id      String       @id @default(cuid())
+  agentId String
+  scope   String
+  scopeId String
+  agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  items   MemoryItem[]
+
+  @@unique([agentId, scope, scopeId])
+  @@index([agentId])
+}
+
+model MemoryItem {
+  id        String      @id @default(cuid())
+  memoryId  String
+  key       String
+  value     String      @db.Text
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  memory    AgentMemory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@unique([memoryId, key])
+  @@index([memoryId])
+}
+
+model Conversation {
+  id           String             @id @default(cuid())
+  agentId      String?
+  connectionId String
+  platformId   String
+  externalId   String?
+  createdAt    DateTime           @default(now())
+  connection   PlatformConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@index([connectionId])
+  @@index([agentId])
+  @@index([externalId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  dir            String
+  text           String       @db.Text
+  externalId     String?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Style {
+  id        String      @id @default(cuid())
+  userId    String
+  name      String
+  tone      String?
+  language  String?
+  length    String?
+  format    String?
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agents    AgentStyle[]
+
+  @@index([userId])
+}
+
+model AgentStyle {
+  agentId String
+  styleId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  style   Style  @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, styleId])
+}
+
+model PermissionGrant {
+  id         String  @id @default(cuid())
+  agentId    String
+  permission String
+  granted    Boolean @default(true)
+  agent      Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, permission])
+  @@index([agentId])
+}
+
+model Approval {
+  id        String    @id @default(cuid())
+  agentId   String
+  action    String
+  preview   String    @db.Text
+  payload   Json?
+  status    String
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([status])
+}
+
+model Execution {
+  id        String          @id @default(cuid())
+  agentId   String
+  taskId    String?
+  plan      Json
+  mode      String
+  status    String
+  result    Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  task      AgentTask?      @relation(fields: [taskId], references: [id])
+  steps     ExecutionStep[]
+
+  @@index([agentId])
+  @@index([taskId])
+  @@index([status])
+}
+
+model ExecutionStep {
+  id          String    @id @default(cuid())
+  executionId String
+  name        String
+  status      String
+  detail      Json?
+  createdAt   DateTime  @default(now())
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+}
+
+model Schedule {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  cron      String?
+  runAt     DateTime?
+  payload   Json?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Automation {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  trigger   Json
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String?  @db.Text
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Usage {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  units     Int      @default(1)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  agentId   String?
+  taskId    String?
+  action    String
+  outcome   String
+  detail    Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+model OutreachCampaign {
+  id        String         @id @default(cuid())
+  userId    String
+  name      String
+  status    String         @default("draft")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leads     OutreachLead[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OutreachLead {
+  id         String            @id @default(cuid())
+  campaignId String
+  name       String?
+  contact    String?
+  status     String            @default("new")
+  createdAt  DateTime          @default(now())
+  campaign   OutreachCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  messages   OutreachMessage[]
+
+  @@index([campaignId])
+  @@index([status])
+}
+
+model OutreachMessage {
+  id      String       @id @default(cuid())
+  leadId  String
+  dir     String
+  text    String       @db.Text
+  sentAt  DateTime     @default(now())
+  lead    OutreachLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+}
+
+model BrowserSession {
+  id         String   @id @default(cuid())
+  userId     String?
+  platformId String?
+  state      Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
