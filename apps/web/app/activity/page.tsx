@@ -1,100 +1,94 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, fmtTime } from '@/lib/client';
-import { Icon, paths } from '@/components/icons';
-import { Pill, Spinner, ErrorBox, Empty, PageHead } from '@/components/ui';
+import { useTx } from '@/components/tx-store';
+import { PageHead, OutcomeChip, EmptyState, Skeleton, ErrorBox, TextInput, Select } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Evt { id: string; agentId: string; taskId?: string; action: string; outcome: string; createdAt: string; detail?: Record<string, unknown> }
-interface Agent { id: string; name: string }
-
-const OUTCOMES = ['ALL', 'PREPARED', 'APPROVED', 'EXECUTED', 'FAILED', 'CANCELLED', 'DENIED'];
-
-function detailText(detail: Record<string, unknown>): string {
-  const v = detail.message ?? detail.code ?? '';
-  return typeof v === 'string' ? v : JSON.stringify(v);
+interface Ev {
+  id: string; agentId: string; taskId?: string; action: string; outcome: string;
+  createdAt: string; detail?: Record<string, unknown>;
 }
 
-export default function ActivityPage() {
-  const [events, setEvents] = useState<Evt[] | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [error, setError] = useState('');
-  const [agentId, setAgentId] = useState('');
-  const [outcome, setOutcome] = useState('ALL');
+const OUTCOMES = ['ALL', 'PREPARED', 'APPROVED', 'EXECUTED', 'FAILED', 'CANCELLED', 'DENIED'] as const;
 
-  async function load() {
-    setError('');
+export default function HistoryPage() {
+  const { agents } = useTx();
+  const [events, setEvents] = useState<Ev[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>('ALL');
+  const [agentFilter, setAgentFilter] = useState('ALL');
+  const [q, setQ] = useState('');
+
+  const load = useCallback(async () => {
     try {
-      const a = await api('/api/agents');
-      setAgents(a.agents ?? []);
-      const q = new URLSearchParams();
-      if (agentId) q.set('agentId', agentId);
-      if (outcome !== 'ALL') q.set('outcome', outcome);
-      const d = await api(`/api/activity?${q.toString()}`);
+      const params = new URLSearchParams({ limit: '300' });
+      if (outcome !== 'ALL') params.set('outcome', outcome);
+      if (agentFilter !== 'ALL') params.set('agentId', agentFilter);
+      const d = await api(`/api/activity?${params}`);
       setEvents(d.events ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [outcome, agentFilter]);
 
-  useEffect(() => { load(); }, []);
-  useEffect(() => { load(); }, [agentId, outcome]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+  const shown = events.filter((e) =>
+    q.trim() === '' ||
+    e.action.toLowerCase().includes(q.toLowerCase()) ||
+    agentName(e.agentId).toLowerCase().includes(q.toLowerCase()) ||
+    JSON.stringify(e.detail ?? {}).toLowerCase().includes(q.toLowerCase()),
+  );
 
   return (
     <div>
-      <PageHead
-        title="Activity"
-        sub="Audit timeline — har stage likha jata hai: PREPARED, APPROVED, EXECUTED, FAILED, CANCELLED, DENIED."
-        action={
-          <div className="flex gap-2">
-            <select className="tx-input !w-auto text-xs" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-              <option value="">Sab agents</option>
-              {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-            <select className="tx-input !w-auto text-xs" value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-              {OUTCOMES.map((o) => <option key={o} value={o}>{o === 'ALL' ? 'Sab outcomes' : o}</option>)}
-            </select>
-            <button className="tx-btn btn-ghost text-xs" onClick={load}>
-              <Icon d={paths.refresh} className="w-4 h-4" />
-            </button>
-          </div>
-        }
-      />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
+      <PageHead title="History" sub="Har important action ka audit trail — PREPARED se EXECUTED tak." />
+      <ErrorBox msg={error} onClose={() => setError('')} />
 
-      {events === null ? (
-        <Spinner label="Audit load ho raha hai…" />
-      ) : events.length === 0 ? (
-        <Empty title="Koi audit event nahi" hint="Filter badal kar dekhein." />
+      <div className="card card-pad mb-4 flex flex-wrap gap-2.5 items-end">
+        <div className="w-44">
+          <Select value={outcome} onChange={(e) => setOutcome(e.target.value as (typeof OUTCOMES)[number])} aria-label="Outcome filter">
+            {OUTCOMES.map((o) => <option key={o}>{o}</option>)}
+          </Select>
+        </div>
+        <div className="w-44">
+          <Select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} aria-label="Agent filter">
+            <option value="ALL">All agents</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+        </div>
+        <div className="flex-1 min-w-[180px]">
+          <TextInput placeholder='Search — "Ahmed", "approved", "whatsapp"…' value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
+      ) : shown.length === 0 ? (
+        <EmptyState icon="history" title="No activity yet." sub="Agents kaam karenge to har event yahan log hoga." />
       ) : (
-        <div className="relative">
-          <div className="absolute left-[9px] top-2 bottom-2 w-px bg-txviolet/25" />
-          <div className="space-y-2">
-            {events.map((e) => (
-              <div key={e.id} className="relative pl-8">
-                <span className="absolute left-[5px] top-3 w-2.5 h-2.5 rounded-full bg-txviolet border border-txbg" />
-                <div className="glass-soft p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex-1 min-w-[200px]">
-                    <span className="font-mono text-white/80">{e.action}</span>
-                    <span className="text-white/40 ml-2">{agentName(e.agentId)}</span>
-                    {e.detail && Boolean(e.detail.code || e.detail.message) && (
-                      <div className="text-white/45 mt-1 break-words">
-                        {detailText(e.detail)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Pill status={e.outcome} />
-                    <span className="text-white/35">{fmtTime(e.createdAt)}</span>
-                  </div>
+        <div className="card card-pad">
+          <ol className="space-y-1">
+            {shown.map((e) => (
+              <li key={e.id} className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-white/5 last:border-0 text-[13px]">
+                <OutcomeChip outcome={e.outcome} />
+                <div className="flex-1 min-w-0">
+                  <span className="font-semibold">{agentName(e.agentId)}</span>
+                  <span className="muted"> — {e.action.replace(/\./g, ' ')}</span>
                 </div>
-              </div>
+                <span className="text-[11px] muted shrink-0">{fmtTime(e.createdAt)}</span>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       )}
     </div>

@@ -3,105 +3,127 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/client';
-import { Icon, paths } from '@/components/icons';
-import { Pill, Spinner, ErrorBox, Empty, PageHead, Field } from '@/components/ui';
+import { useTx } from '@/components/tx-store';
+import type { AgentLite } from '@/components/tx-store';
+import { PageHead, Btn, Modal, Field, TextInput, TextArea, Select, StatusChip, EmptyState, Skeleton, ErrorBox, Notice } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Agent { id: string; name: string; platformId: string; status: string; instructions: string }
+interface Agent extends AgentLite { instructions: string }
+interface Platform { id: string; name: string; status: string }
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[] | null>(null);
-  const [error, setError] = useState('');
-  const [creating, setCreating] = useState(false);
+  const { agents, refreshAgents, setActiveAgentId, bump } = useTx();
+  const [loading, setLoading] = useState(true);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', platformId: 'whatsapp', instructions: '' });
-  const [platforms, setPlatforms] = useState<{ id: string; name: string }[]>([]);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  async function load() {
+  useEffect(() => {
+    Promise.all([refreshAgents(), api('/api/platforms').then((d) => setPlatforms(d.platforms ?? [])).catch(() => {})])
+      .finally(() => setLoading(false));
+  }, [refreshAgents]);
+
+  async function create() {
     setError('');
+    setSaving(true);
     try {
-      const d = await api('/api/agents');
-      setAgents(d.agents ?? []);
-      const p = await api('/api/platforms');
-      setPlatforms((p.platforms ?? []).map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })));
+      const d = await api('/api/agents', { method: 'POST', body: form });
+      setNotice(`Agent "${d.agent.name}" ban gaya.`);
+      setShowNew(false);
+      setForm({ name: '', platformId: 'whatsapp', instructions: '' });
+      await refreshAgents();
+      bump();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
-
-  async function create() {
-    try {
-      await api('/api/agents', { method: 'POST', body: form });
-      setForm({ name: '', platformId: 'whatsapp', instructions: '' });
-      setCreating(false);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  async function togglePause(a: AgentLite) {
+    const kind = a.status === 'PAUSED' ? 'resume' : 'pause';
+    await api(`/api/agents/${a.id}/${kind}`, { method: 'POST' }).catch(() => {});
+    await refreshAgents();
+    bump();
   }
 
   return (
     <div>
       <PageHead
         title="Agents"
-        sub="Har platform ka alag agent — isolate memory, isolate permissions."
-        action={
-          <button className="tx-btn btn-primary text-xs" onClick={() => setCreating((v) => !v)}>
-            <Icon d={paths.plus} className="w-4 h-4" /> Naya Agent
-          </button>
-        }
+        sub="Har platform ka apna isolated agent — alag memory, alag context, alag permissions."
+        actions={<Btn variant="primary" icon="plus" onClick={() => setShowNew(true)}>New agent</Btn>}
       />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
+      {notice && <div className="mb-3"><Notice msg={notice} onClose={() => setNotice('')} /></div>}
 
-      {creating && (
-        <div className="glass p-5 mb-5 fade-up">
-          <h3 className="font-bold mb-3">Naya agent banayein</h3>
-          <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Naam">
-              <input className="tx-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Sales Agent" />
-            </Field>
-            <Field label="Platform">
-              <select className="tx-input" value={form.platformId} onChange={(e) => setForm({ ...form, platformId: e.target.value })}>
-                {platforms.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
-          </div>
-          <div className="mt-3">
-            <Field label="Instructions (agent ki personality / rules)">
-              <textarea className="tx-input" rows={3} value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} placeholder="Agent kya kare, kaise baat kare…" />
-            </Field>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button className="tx-btn btn-primary text-xs" disabled={!form.name.trim()} onClick={create}>
-              <Icon d={paths.check} className="w-4 h-4" /> Banayein
-            </button>
-            <button className="tx-btn btn-ghost text-xs" onClick={() => setCreating(false)}>Radd karein</button>
-          </div>
+      {loading ? (
+        <div className="grid md:grid-cols-2 gap-3">{[0, 1].map((i) => <Skeleton key={i} className="h-36" />)}</div>
+      ) : agents.length === 0 ? (
+        <EmptyState
+          icon="agents"
+          title="No agents yet."
+          sub="Pehla agent banayein — platform chunein, instructions dein."
+          action={<Btn variant="primary" icon="plus" onClick={() => setShowNew(true)}>New agent</Btn>}
+        />
+      ) : (
+        <div className="grid md:grid-cols-2 gap-3">
+          {(agents as Agent[]).map((a) => (
+            <div key={a.id} className="card card-pad card-hover">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-txpurple/20 text-txpurple dark:text-violet-300 flex items-center justify-center font-bold">
+                    {a.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <div>
+                    <div className="font-semibold">{a.name}</div>
+                    <div className="text-[11.5px] muted capitalize">{a.platformId.replace(/_/g, ' ')}</div>
+                  </div>
+                </div>
+                <StatusChip status={a.status} />
+              </div>
+              {a.instructions && <p className="text-[12.5px] muted mt-2 line-clamp-2">{a.instructions}</p>}
+              <div className="flex gap-1.5 mt-3">
+                <Link href={`/agents/${a.id}`} onClick={() => setActiveAgentId(a.id)}>
+                  <span className="tx-btn btn-primary btn-sm">Open</span>
+                </Link>
+                <Btn size="sm" icon={a.status === 'PAUSED' ? 'play' : 'pause'} onClick={() => togglePause(a)}>
+                  {a.status === 'PAUSED' ? 'Resume' : 'Pause'}
+                </Btn>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      {agents === null ? (
-        <Spinner label="Agents load ho rahe hain…" />
-      ) : agents.length === 0 ? (
-        <Empty title="Koi agent nahi" hint="Upar 'Naya Agent' se banayein." />
-      ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {agents.map((a) => (
-            <Link key={a.id} href={`/agents/${a.id}`} className="glass p-5 hover:border-txviolet/40 transition block">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-bold text-lg">{a.name}</div>
-                  <div className="text-xs text-white/50 capitalize">{a.platformId.replace('-', ' ')}</div>
-                </div>
-                <Pill status={a.status} live={a.status === 'ACTIVE'} />
-              </div>
-              <p className="text-sm text-white/55 mt-3 line-clamp-2">{a.instructions}</p>
-              <div className="text-xs text-txviolet mt-3 font-semibold">Detail kholein →</div>
-            </Link>
-          ))}
-        </div>
+      {showNew && (
+        <Modal title="New agent" onClose={() => setShowNew(false)}>
+          <div className="space-y-3">
+            <ErrorBox msg={error} onClose={() => setError('')} />
+            <Field label="Agent name">
+              <TextInput placeholder="e.g. WhatsApp Agent" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </Field>
+            <Field label="Platform">
+              <Select value={form.platformId} onChange={(e) => setForm({ ...form, platformId: e.target.value })}>
+                {platforms.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Instructions" hint="Agent hamesha in instructions ke andar kaam karega.">
+              <TextArea rows={3} placeholder="e.g. Keep replies friendly, concise, in Roman Urdu." value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
+            </Field>
+            <div className="flex justify-end gap-2 pt-1">
+              <Btn onClick={() => setShowNew(false)}>Cancel</Btn>
+              <Btn variant="primary" disabled={saving || !form.name.trim()} onClick={create}>
+                {saving ? 'Creating…' : 'Create agent'}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

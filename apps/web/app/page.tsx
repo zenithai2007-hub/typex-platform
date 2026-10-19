@@ -2,121 +2,115 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, timeAgo } from '@/lib/client';
+import { api } from '@/lib/client';
+import { useTx } from '@/components/tx-store';
+import type { AgentLite } from '@/components/tx-store';
 import { Icon, paths } from '@/components/icons';
-import { Pill, Spinner, ErrorBox, Empty, PageHead } from '@/components/ui';
+import { PageHead, Btn, Stat, StatusChip, EmptyState, Skeleton } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Agent { id: string; name: string; platformId: string; status: string; lastActiveAt: string; currentTask: string | null }
-interface Task { id: string; agentId: string; objective: string; status: string }
+interface Agent extends AgentLite { currentTask?: string | null }
 
 function greeting(): string {
   const h = new Date().getHours();
-  if (h < 12) return 'Assalam-o-Alaikum';
-  if (h < 17) return 'Dopher bakhair';
-  return 'Shaam bakhair';
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
 export default function HomePage() {
-  const [agents, setAgents] = useState<Agent[] | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [approvals, setApprovals] = useState<number>(0);
-  const [error, setError] = useState('');
+  const { agents, refreshAgents, setActiveAgentId, bump } = useTx();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ executed: 0, approved: 0, pending: 0, outputs: 0 });
 
-  async function load() {
-    setError('');
-    try {
-      const d = await api('/api/agents');
-      const list: Agent[] = d.agents ?? [];
-      setAgents(list);
-      const all: Task[] = [];
-      for (const a of list) {
-        const t = await api(`/api/agents/${a.id}/tasks`);
-        all.push(...(t.tasks ?? []));
-      }
-      setTasks(all);
-      const ap = await api('/api/approvals?pending=1');
-      setApprovals((ap.approvals ?? []).length);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  useEffect(() => {
+    Promise.all([refreshAgents(), api('/api/activity?limit=500'), api('/api/approvals?pending=1')])
+      .then(([, act, ap]) => {
+        const ev: { outcome: string; action: string }[] = act.events ?? [];
+        setStats({
+          executed: ev.filter((e) => e.outcome === 'EXECUTED').length,
+          approved: ev.filter((e) => e.outcome === 'APPROVED').length,
+          pending: (ap.approvals ?? []).length,
+          outputs: ev.filter((e) => e.action.includes('generat') || e.action.includes('plan.prepared')).length,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [refreshAgents]);
+
+  async function togglePause(a: AgentLite) {
+    const kind = a.status === 'PAUSED' ? 'resume' : 'pause';
+    await api(`/api/agents/${a.id}/${kind}`, { method: 'POST' }).catch(() => {});
+    await refreshAgents();
+    bump();
   }
 
-  useEffect(() => { load(); }, []);
-
-  const running = tasks.filter((t) => ['CREATED', 'RUNNING', 'WAITING', 'WAITING_APPROVAL', 'PAUSED'].includes(t.status)).length;
+  const active = agents.filter((a) => a.status === 'ACTIVE' || a.status === 'WAITING_APPROVAL');
 
   return (
     <div>
       <PageHead
-        title={`${greeting()}!`}
-        sub="CLINT X Control Center — apke agents, tasks aur approvals ek jagah."
-        action={
-          <button className="tx-btn btn-ghost text-xs" onClick={load}>
-            <Icon d={paths.refresh} className="w-4 h-4" /> Refresh
-          </button>
+        title={`${greeting()} — Clint X ready hai.`}
+        sub="Apne agents dekhein, tasks banayein, approvals handle karein — sab kuch yahin se."
+        actions={
+          <Link href="/workspace"><span className="tx-btn btn-primary"><Icon d={paths.workspace} className="w-4 h-4" /> Open Workspace</span></Link>
         }
       />
 
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        {[
-          { label: 'Agents', value: agents?.length ?? '—', href: '/agents', icon: 'agents' },
-          { label: 'Chalte hue tasks', value: running, href: '/tasks', icon: 'tasks' },
-          { label: 'Pending approvals', value: approvals, href: '/approvals', icon: 'approvals' },
-          { label: 'Generate karein', value: '→', href: '/workspace', icon: 'workspace' },
-        ].map((s) => (
-          <Link key={s.label} href={s.href} className="glass p-4 hover:border-txviolet/40 transition">
-            <div className="flex items-center justify-between">
-              <div className="text-2xl font-extrabold">{s.value}</div>
-              <Icon d={paths[s.icon as keyof typeof paths]} className="w-5 h-5 text-txviolet" />
-            </div>
-            <div className="text-xs text-white/50 mt-1">{s.label}</div>
-          </Link>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <Stat label="Active agents" value={active.length} icon="agents" />
+        <Stat label="Outputs generated" value={stats.outputs} icon="sparkle" />
+        <Stat label="Approved actions" value={stats.approved} icon="approvals" />
+        <Stat label="Executed" value={stats.executed} icon="zap" />
       </div>
 
-      <h2 className="text-lg font-bold mb-3">Apke Agents</h2>
-      {agents === null ? (
-        <Spinner label="Agents load ho rahe hain…" />
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-[15px] font-bold">Agents</h2>
+        <Link href="/agents" className="text-[13px] font-semibold text-txpurple hover:underline">Manage all</Link>
+      </div>
+
+      {loading ? (
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-32" />)}
+        </div>
       ) : agents.length === 0 ? (
-        <Empty title="Koi agent nahi mila" hint="Agents page par naya agent banayein." />
+        <EmptyState
+          icon="agents"
+          title="No agents yet."
+          sub="Create your first agent — pick a platform, set instructions, and let Clint X work."
+          action={<Link href="/agents"><span className="tx-btn btn-primary">Create agent</span></Link>}
+        />
       ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {agents.map((a) => {
-            const live = a.status === 'ACTIVE' || a.status === 'WAITING_APPROVAL';
-            const cur = tasks.find((t) => t.id === a.currentTask);
-            return (
-              <div key={a.id} className="glass p-5">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-bold text-lg">{a.name}</div>
-                    <div className="text-xs text-white/50 capitalize">{a.platformId.replace('-', ' ')} platform</div>
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {(agents as Agent[]).map((a) => (
+            <div key={a.id} className="card card-pad card-hover">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-txpurple/20 text-txpurple dark:text-violet-300 flex items-center justify-center font-bold shrink-0">
+                    {a.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-[14px] truncate">{a.name}</div>
+                    <div className="text-[11.5px] muted capitalize">{a.platformId.replace(/_/g, ' ')}</div>
                   </div>
-                  <Pill status={a.status} live={live} />
                 </div>
-                <div className="text-sm text-white/60 mt-3">
-                  <span className="text-white/40">Current task: </span>
-                  {cur ? cur.objective : <span className="text-white/35">koi nahi</span>}
-                </div>
-                <div className="text-xs text-white/40 mt-1">Last activity: {timeAgo(a.lastActiveAt)}</div>
-                <div className="flex gap-2 mt-4">
-                  {a.status === 'PAUSED' || a.status === 'OFFLINE' ? (
-                    <button className="tx-btn btn-ghost text-xs" onClick={async () => { await api(`/api/agents/${a.id}/resume`, { method: 'POST' }); load(); }}>
-                      <Icon d={paths.play} className="w-4 h-4" /> Resume
-                    </button>
-                  ) : (
-                    <button className="tx-btn btn-ghost text-xs" onClick={async () => { await api(`/api/agents/${a.id}/pause`, { method: 'POST' }); load(); }}>
-                      <Icon d={paths.pause} className="w-4 h-4" /> Pause
-                    </button>
-                  )}
-                  <Link href={`/agents/${a.id}`} className="tx-btn btn-primary text-xs">Open</Link>
-                </div>
+                <StatusChip status={a.status} />
               </div>
-            );
-          })}
+              {a.currentTask && <div className="text-[12px] muted mt-2 line-clamp-2">Task: {a.currentTask}</div>}
+              <div className="flex gap-1.5 mt-3">
+                <Link href={`/agents/${a.id}`} onClick={() => setActiveAgentId(a.id)}>
+                  <span className="tx-btn btn-ghost btn-sm">Open</span>
+                </Link>
+                <Link href="/workspace" onClick={() => setActiveAgentId(a.id)}>
+                  <span className="tx-btn btn-ghost btn-sm">Workspace</span>
+                </Link>
+                <Btn size="sm" icon={a.status === 'PAUSED' ? 'play' : 'pause'} onClick={() => togglePause(a)} className="ml-auto">
+                  {a.status === 'PAUSED' ? 'Resume' : 'Pause'}
+                </Btn>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

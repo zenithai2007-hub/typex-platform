@@ -1,146 +1,138 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, fmtTime } from '@/lib/client';
-import { Icon, paths } from '@/components/icons';
-import { Pill, Spinner, ErrorBox, Empty, PageHead } from '@/components/ui';
+import { useTx } from '@/components/tx-store';
+import { PageHead, Btn, OutcomeChip, EmptyState, Skeleton, ErrorBox, TextArea } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Approval { id: string; agentId: string; action: string; preview: string; status: string; createdAt: string; payload?: Record<string, unknown> }
-interface Agent { id: string; name: string }
+interface Approval {
+  id: string; agentId: string; action: string; preview: string;
+  payload?: Record<string, unknown>; status: string; createdAt: string; decidedAt?: string;
+}
 
 export default function ApprovalsPage() {
-  const [approvals, setApprovals] = useState<Approval[] | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const { agents, bump } = useTx();
+  const [list, setList] = useState<Approval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'pending' | 'all'>('pending');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
 
-  async function load() {
-    setError('');
+  const load = useCallback(async () => {
     try {
-      const d = await api('/api/approvals?pending=1');
-      setApprovals(d.approvals ?? []);
-      const a = await api('/api/agents');
-      setAgents(a.agents ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function decide(id: string, decision: 'approved' | 'rejected' | 'cancelled', editedPreview?: string) {
-    setBusy(id);
-    setError('');
-    try {
-      if (editedPreview !== undefined) {
-        // Edit = cancel this one, create a fresh approval with the edited text
-        // (recipient and other payload fields preserved).
-        const orig = approvals?.find((x) => x.id === id);
-        if (orig) {
-          await api(`/api/approvals/${id}/decision`, { method: 'POST', body: { decision: 'cancelled' } });
-          const base = (orig.payload ?? {}) as Record<string, unknown>;
-          const inner = (base.payload ?? {}) as Record<string, unknown>;
-          await api('/api/approvals', {
-            method: 'POST',
-            body: {
-              agentId: orig.agentId,
-              action: orig.action,
-              preview: editedPreview,
-              payload: { ...base, payload: { ...inner, text: editedPreview } },
-            },
-          });
-          setEditing(null);
-          await load();
-          return;
-        }
-      }
-      const d = await api(`/api/approvals/${id}/decision`, { method: 'POST', body: { decision } });
-      const res = d.result ?? {};
-      if (!res.ok) {
-        setError(res.message ?? 'Decision failed.');
-      }
-      await load();
+      const d = await api('/api/approvals');
+      const arr: Approval[] = (d.approvals ?? []).sort(
+        (a: Approval, b: Approval) => +new Date(b.createdAt) - +new Date(a.createdAt),
+      );
+      setList(arr);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy('');
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 10000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? 'Agent';
+
+  async function decide(a: Approval, decision: 'approved' | 'rejected' | 'cancelled', editedPreview?: string) {
+    setDeciding(a.id);
+    setError('');
+    try {
+      if (editedPreview !== undefined) {
+        await api('/api/approvals', {
+          method: 'POST',
+          body: { agentId: a.agentId, action: a.action, preview: editedPreview, payload: a.payload ?? {} },
+        });
+        await api(`/api/approvals/${a.id}/decision`, { method: 'POST', body: { decision: 'cancelled' } });
+      } else {
+        const r = await api(`/api/approvals/${a.id}/decision`, { method: 'POST', body: { decision } });
+        if (decision === 'approved' && r?.result && r.result.ok === false) {
+          setError(`Execution failed: ${r.result.message ?? r.result.code ?? 'adapter ne confirm nahi kiya.'}`);
+        }
+      }
+      setEditId(null);
+      await load();
+      bump();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeciding(null);
     }
   }
 
-  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+  const shown = filter === 'pending' ? list.filter((a) => a.status === 'PENDING') : list;
 
   return (
     <div>
       <PageHead
         title="Approvals"
-        sub="CLINT X ne ye action tayyar kiya. Aapki ijazat ke baghair kuch send nahi hoga."
-        action={<button className="tx-btn btn-ghost text-xs" onClick={load}><Icon d={paths.refresh} className="w-4 h-4" /> Refresh</button>}
+        sub="External action se pehle Clint X yahan rukta hai — aapki permission ke baghair kuch execute nahi hota."
+        actions={
+          <div className="flex gap-1.5">
+            {(['pending', 'all'] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={`chip !py-1.5 !px-3 !text-[12px] cursor-pointer capitalize ${filter === f ? 'chip-orange' : ''}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+        }
       />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
+      <ErrorBox msg={error} onClose={() => setError('')} />
 
-      {approvals === null ? (
-        <Spinner label="Approvals load ho rahe hain…" />
-      ) : approvals.length === 0 ? (
-        <Empty title="Koi pending approval nahi" hint="Sab clear hai." />
+      {loading ? (
+        <div className="space-y-2.5">{[0, 1].map((i) => <Skeleton key={i} className="h-32" />)}</div>
+      ) : shown.length === 0 ? (
+        <EmptyState
+          icon="shield"
+          title={filter === 'pending' ? 'No pending approvals.' : 'No approvals yet.'}
+          sub="Jab agent koi external action prepare karega, woh yahan aapki approval ka wait karega."
+        />
       ) : (
-        <div className="space-y-4">
-          {approvals.map((a) => (
-            <div key={a.id} className="glass p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-bold">CLINT X prepared this action.</div>
-                  <div className="text-xs text-white/50 mt-1 font-mono">
-                    {a.action} · agent: {agentName(a.agentId)} · {fmtTime(a.createdAt)}
-                  </div>
-                </div>
-                <Pill status={a.status} live />
+        <div className="space-y-3">
+          {shown.map((a) => (
+            <div key={a.id} className={`card card-pad ${a.status === 'PENDING' ? 'border-orange-200 dark:border-orange-500/30' : ''}`}>
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <OutcomeChip outcome={a.status} />
+                <span className="text-[12px] muted">{agentName(a.agentId)} · <span className="font-mono">{a.action}</span></span>
+                <span className="text-[11px] muted ml-auto">{fmtTime(a.createdAt)}</span>
               </div>
-
-              {editing === a.id ? (
-                <div className="mt-4">
-                  <textarea className="tx-input" rows={4} value={editText} onChange={(e) => setEditText(e.target.value)} />
-                  <div className="flex gap-2 mt-2">
-                    <button className="tx-btn btn-primary text-xs" disabled={busy === a.id} onClick={() => decide(a.id, 'approved', editText)}>
-                      Save as new approval
-                    </button>
-                    <button className="tx-btn btn-ghost text-xs" onClick={() => setEditing(null)}>Radd</button>
+              <div className="text-[12px] font-bold uppercase tracking-wide muted mb-1.5">Clint X prepared this action.</div>
+              {editId === a.id ? (
+                <div className="space-y-2">
+                  <TextArea rows={3} value={editText} onChange={(e) => setEditText(e.target.value)} />
+                  <div className="flex gap-1.5">
+                    <Btn size="sm" variant="action" disabled={deciding === a.id || !editText.trim()} onClick={() => decide(a, 'approved', editText.trim())}>
+                      Save & approve
+                    </Btn>
+                    <Btn size="sm" onClick={() => setEditId(null)}>Cancel</Btn>
                   </div>
                 </div>
               ) : (
-                <div className="glass-soft p-4 mt-4 text-sm whitespace-pre-wrap">{a.preview}</div>
+                <>
+                  <p className="text-[13.5px] bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 whitespace-pre-wrap mb-3">
+                    {a.preview}
+                  </p>
+                  {a.status === 'PENDING' && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <Btn size="sm" variant="action" icon="check" disabled={deciding === a.id} onClick={() => decide(a, 'approved')}>
+                        Approve
+                      </Btn>
+                      <Btn size="sm" icon="edit" onClick={() => { setEditId(a.id); setEditText(a.preview); }}>Edit</Btn>
+                      <Btn size="sm" variant="danger" disabled={deciding === a.id} onClick={() => decide(a, 'cancelled')}>Cancel</Btn>
+                    </div>
+                  )}
+                </>
               )}
-
-              <div className="flex flex-wrap gap-2 mt-4">
-                <button
-                  className="tx-btn btn-action text-xs"
-                  disabled={busy === a.id || editing === a.id}
-                  onClick={() => decide(a.id, 'approved')}
-                >
-                  <Icon d={paths.check} className="w-4 h-4" />
-                  {busy === a.id ? 'Chal raha…' : 'Approve'}
-                </button>
-                <button
-                  className="tx-btn btn-ghost text-xs"
-                  disabled={busy === a.id}
-                  onClick={() => { setEditText(a.preview); setEditing(a.id); }}
-                >
-                  <Icon d={paths.edit} className="w-4 h-4" /> Edit
-                </button>
-                <button
-                  className="tx-btn btn-ghost text-xs"
-                  disabled={busy === a.id || editing === a.id}
-                  onClick={() => decide(a.id, 'cancelled')}
-                >
-                  <Icon d={paths.x} className="w-4 h-4" /> Cancel
-                </button>
-              </div>
-              <p className="text-xs text-white/40 mt-3">
-                Approve par hi action chalega — adapter ki confirmation ke baghair "success" kabhi nahi dikhega.
-              </p>
             </div>
           ))}
         </div>

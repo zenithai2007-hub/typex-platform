@@ -3,131 +3,123 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/client';
 import { Icon, paths } from '@/components/icons';
-import { Spinner, ErrorBox, Empty, PageHead, Field, ConfirmButton } from '@/components/ui';
+import { PageHead, Btn, Modal, Field, TextInput, TextArea, Select, EmptyState, Skeleton, ErrorBox, Notice } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Style { id: string; name: string; tone?: string; language?: string; length?: string; format?: string }
+interface Style {
+  id: string; name: string; tone?: string; language?: string; length?: string;
+  format?: string; description?: string; examples?: string;
+}
 
-const PRESETS: Omit<Style, 'id'>[] = [
-  { name: 'Friendly Roman Urdu', tone: 'friendly', language: 'Roman Urdu', length: 'medium' },
-  { name: 'Professional English', tone: 'formal', language: 'English', length: 'medium' },
-  { name: 'Short & Punchy', tone: 'casual', language: 'Roman Urdu', length: 'short' },
-  { name: 'Sales Closer', tone: 'persuasive', language: 'Roman Urdu', length: 'medium' },
-];
+const TONES = ['', 'Professional', 'Friendly', 'Casual', 'Formal', 'Persuasive', 'Confident', 'Funny', 'Simple', 'Technical', 'Romantic', 'Business'];
+const LANGS = ['', 'English', 'Urdu', 'Roman Urdu', 'Hindi', 'Arabic', 'Spanish', 'French', 'German'];
+const LENGTHS = ['', 'Short', 'Medium', 'Long'];
+const FORMATS = ['', 'Plain Text', 'Paragraphs', 'Bullets', 'Numbered List', 'Email', 'Social Media'];
+
+const empty: Style = { id: '', name: '', tone: '', language: 'Roman Urdu', length: '', format: '', description: '', examples: '' };
 
 export default function StylesPage() {
-  const [styles, setStyles] = useState<Style[] | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [styles, setStyles] = useState<Style[]>([]);
+  const [activeId, setActiveId] = useState('');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ name: '', tone: '', language: 'Roman Urdu', length: '', format: '' });
-  const [editing, setEditing] = useState<Style | null>(null);
+  const [notice, setNotice] = useState('');
+  const [showEdit, setShowEdit] = useState(false);
+  const [form, setForm] = useState<Style>(empty);
 
-  async function load() {
-    setError('');
+  useEffect(() => {
+    api('/api/styles')
+      .then((d) => {
+        setStyles(d.styles ?? []);
+        setActiveId(d.activeId ?? '');
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save(activate = false) {
     try {
+      await api('/api/styles', { method: 'POST', body: { ...form, activate } });
+      setNotice(activate ? `"${form.name}" activate ho gaya.` : 'Style save ho gaya.');
+      setShowEdit(false);
       const d = await api('/api/styles');
       setStyles(d.styles ?? []);
-      setActiveId(d.activeId ?? null);
+      setActiveId(d.activeId ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function save() {
-    try {
-      await api('/api/styles', { method: 'POST', body: { ...(editing ? { id: editing.id } : {}), ...form } });
-      setForm({ name: '', tone: '', language: 'Roman Urdu', length: '', format: '' });
-      setEditing(null);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function activate(id: string) {
-    await api('/api/styles', { method: 'POST', body: { id, name: styles?.find((s) => s.id === id)?.name ?? 'style', activate: true } });
-    load();
   }
 
   async function remove(id: string) {
-    await api(`/api/styles?id=${id}`, { method: 'DELETE' });
-    load();
+    if (!confirm('Is style ko delete karein?')) return;
+    await api(`/api/styles?id=${id}`, { method: 'DELETE' }).catch(() => {});
+    setStyles((p) => p.filter((s) => s.id !== id));
   }
 
-  async function addPreset(p: Omit<Style, 'id'>) {
-    await api('/api/styles', { method: 'POST', body: p });
-    load();
+  function openNew() {
+    setForm({ ...empty, id: `style-${Date.now()}` });
+    setShowEdit(true);
   }
 
   return (
     <div>
-      <PageHead title="Styles" sub="Tone presets — workspace generation inhi styles se chalti hai." />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
+      <PageHead
+        title="Styles"
+        sub="Apni writing styles save karein — workspace har generation mein use karega."
+        actions={<Btn variant="primary" icon="plus" onClick={openNew}>New style</Btn>}
+      />
+      {notice && <div className="mb-3"><Notice msg={notice} onClose={() => setNotice('')} /></div>}
+      <ErrorBox msg={error} onClose={() => setError('')} />
 
-      <div className="glass p-5 mb-4">
-        <h3 className="font-bold mb-3">Ready-made presets</h3>
-        <div className="flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button key={p.name} className="tx-btn btn-ghost text-xs" onClick={() => addPreset(p)}>
-              <Icon d={paths.plus} className="w-3.5 h-3.5" /> {p.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="glass p-5 mb-4">
-        <h3 className="font-bold mb-3">{editing ? 'Style edit karein' : 'Custom style banayein'}</h3>
-        <div className="grid md:grid-cols-3 gap-3">
-          <Field label="Naam"><input className="tx-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Meri Style" /></Field>
-          <Field label="Tone"><input className="tx-input" value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })} placeholder="friendly, formal…" /></Field>
-          <Field label="Language">
-            <select className="tx-input" value={form.language} onChange={(e) => setForm({ ...form, language: e.target.value })}>
-              <option>Roman Urdu</option><option>English</option><option>Urdu</option>
-            </select>
-          </Field>
-          <Field label="Length">
-            <select className="tx-input" value={form.length} onChange={(e) => setForm({ ...form, length: e.target.value })}>
-              <option value="">(default)</option><option>short</option><option>medium</option><option>long</option>
-            </select>
-          </Field>
-          <Field label="Format"><input className="tx-input" value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} placeholder="bullet list…" /></Field>
-        </div>
-        <div className="flex gap-2 mt-4">
-          <button className="tx-btn btn-primary text-xs" disabled={!form.name.trim()} onClick={save}>
-            <Icon d={paths.check} className="w-4 h-4" /> {editing ? 'Update' : 'Banayein'}
-          </button>
-          {editing && <button className="tx-btn btn-ghost text-xs" onClick={() => { setEditing(null); setForm({ name: '', tone: '', language: 'Roman Urdu', length: '', format: '' }); }}>Radd</button>}
-        </div>
-      </div>
-
-      {styles === null ? (
-        <Spinner label="Styles load ho rahe hain…" />
+      {loading ? (
+        <div className="grid md:grid-cols-2 gap-3">{[0, 1].map((i) => <Skeleton key={i} className="h-36" />)}</div>
       ) : styles.length === 0 ? (
-        <Empty title="Koi style nahi" hint="Upar preset ya custom banayein." />
+        <EmptyState icon="styles" title="No saved styles." sub='"My WhatsApp Style" jaisi custom styles banayein.' action={<Btn variant="primary" icon="plus" onClick={openNew}>New style</Btn>} />
       ) : (
         <div className="grid md:grid-cols-2 gap-3">
           {styles.map((s) => (
-            <div key={s.id} className={`glass p-4 ${activeId === s.id ? '!border-txviolet/60' : ''}`}>
-              <div className="flex items-start justify-between">
-                <div className="font-bold">{s.name}</div>
-                {activeId === s.id && <span className="chip !border-txviolet/50 text-txviolet">ACTIVE</span>}
+            <div key={s.id} className={`card card-pad card-hover ${s.id === activeId ? 'border-purple-300 dark:border-txpurple/50' : ''}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-semibold text-[14px]">{s.name}</div>
+                {s.id === activeId && <span className="chip chip-purple">Active</span>}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {[s.tone && `tone: ${s.tone}`, s.language && `lang: ${s.language}`, s.length && `len: ${s.length}`, s.format && `fmt: ${s.format}`].filter(Boolean).map((t) => (
-                  <span key={String(t)} className="chip">{t}</span>
+                {[s.tone, s.language, s.length, s.format].filter(Boolean).map((x) => (
+                  <span key={x} className="chip">{x}</span>
                 ))}
               </div>
+              {s.description && <p className="text-[12.5px] muted mt-2">{s.description}</p>}
               <div className="flex gap-1.5 mt-3">
-                {activeId !== s.id && <button className="tx-btn btn-ghost text-xs !px-3" onClick={() => activate(s.id)}>Activate</button>}
-                <button className="tx-btn btn-ghost text-xs !px-3" onClick={() => { setEditing(s); setForm({ name: s.name, tone: s.tone ?? '', language: s.language ?? 'Roman Urdu', length: s.length ?? '', format: s.format ?? '' }); }}>Edit</button>
-                <ConfirmButton label="Delete" confirmLabel="Delete pakka?" onConfirm={() => remove(s.id)} className="text-xs !px-3" />
+                {s.id !== activeId && <Btn size="xs" variant="primary" onClick={() => { setForm(s); save(true); }}>Activate</Btn>}
+                <Btn size="xs" icon="edit" onClick={() => { setForm(s); setShowEdit(true); }}>Edit</Btn>
+                <Btn size="xs" icon="copy" onClick={() => { setForm({ ...s, id: `style-${Date.now()}`, name: `${s.name} (copy)` }); setShowEdit(true); }}>Duplicate</Btn>
+                <Btn size="xs" variant="danger" icon="trash" onClick={() => remove(s.id)} className="ml-auto">Delete</Btn>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {showEdit && (
+        <Modal title={form.name ? `Edit — ${form.name}` : 'New style'} onClose={() => setShowEdit(false)} wide>
+          <div className="space-y-3">
+            <Field label="Name"><TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. My WhatsApp Style" /></Field>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Field label="Tone"><Select value={form.tone} onChange={(e) => setForm({ ...form, tone: e.target.value })}>{TONES.map((t) => <option key={t} value={t}>{t || '—'}</option>)}</Select></Field>
+              <Field label="Language"><Select value={form.language} onChange={(e) => setForm({ ...form, language: e.target.value })}>{LANGS.map((t) => <option key={t} value={t}>{t || '—'}</option>)}</Select></Field>
+              <Field label="Length"><Select value={form.length} onChange={(e) => setForm({ ...form, length: e.target.value })}>{LENGTHS.map((t) => <option key={t} value={t}>{t || '—'}</option>)}</Select></Field>
+              <Field label="Format"><Select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}>{FORMATS.map((t) => <option key={t} value={t}>{t || '—'}</option>)}</Select></Field>
+            </div>
+            <Field label="Description"><TextInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Kis kaam ke liye hai" /></Field>
+            <Field label="Example phrases"><TextArea rows={2} value={form.examples} onChange={(e) => setForm({ ...form, examples: e.target.value })} placeholder="Preferred phrases…" /></Field>
+            <div className="flex justify-end gap-2">
+              <Btn onClick={() => setShowEdit(false)}>Cancel</Btn>
+              <Btn variant="primary" disabled={!form.name.trim()} onClick={() => save(false)}>Save</Btn>
+              <Btn variant="action" icon="check" disabled={!form.name.trim()} onClick={() => save(true)}>Save & activate</Btn>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

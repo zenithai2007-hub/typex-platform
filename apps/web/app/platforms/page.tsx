@@ -2,88 +2,70 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/client';
-import { Icon, paths } from '@/components/icons';
-import { Pill, Spinner, ErrorBox, Empty, PageHead } from '@/components/ui';
+import { PageHead, EmptyState, Skeleton, ErrorBox } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
 interface Platform {
-  id: string; name: string; icon: string; brandColor: string; connectionType: string;
-  capabilities: string[]; authMethod: string; supportedActions: string[];
-  contextExtraction: string; executionMethod: string; permissionRequirements: string[];
-  rateLimits: string; approvalRequired: boolean; adapterVersion: string; status: string;
-  adapterRegistered: boolean; adapterCapabilities: string[];
+  id: string; name: string; brandColor: string; connectionType: string;
+  authMethod: string; supportedActions: string[]; contextExtraction: string;
+  executionMethod: string; rateLimits: string; approvalRequired: boolean;
+  adapterVersion: string; status: string; adapterRegistered: boolean;
+  adapterCapabilities: string[];
 }
 
 export default function PlatformsPage() {
-  const [platforms, setPlatforms] = useState<Platform[] | null>(null);
+  const [list, setList] = useState<Platform[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function load() {
-    setError('');
-    try {
-      const d = await api('/api/platforms');
-      setPlatforms(d.platforms ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api('/api/platforms')
+      .then((d) => setList(d.platforms ?? []))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div>
-      <PageHead title="Platforms" sub="Registry — har platform ki declared capabilities, honest statuses." />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
-
-      {platforms === null ? (
-        <Spinner label="Platforms load ho rahe hain…" />
-      ) : platforms.length === 0 ? (
-        <Empty title="Koi platform registered nahi" />
+      <PageHead
+        title="Platforms"
+        sub="Extensible registry — naya platform adapter add karne se core rebuild nahi hota."
+      />
+      <ErrorBox msg={error} onClose={() => setError('')} />
+      {loading ? (
+        <div className="grid md:grid-cols-2 gap-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-44" />)}</div>
+      ) : list.length === 0 ? (
+        <EmptyState icon="platforms" title="No platforms registered." />
       ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {platforms.map((p) => (
-            <div key={p.id} className="glass p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-11 h-11 rounded-2xl flex items-center justify-center font-extrabold text-lg"
-                    style={{ backgroundColor: p.brandColor + '22', color: p.brandColor }}
-                  >
-                    <Icon d={p.id === 'whatsapp' ? paths.chat : paths.globe} className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-lg">{p.name}</div>
-                    <div className="text-xs text-white/50 font-mono">{p.id} · v{p.adapterVersion}</div>
-                  </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          {list.map((p) => (
+            <div key={p.id} className="card card-pad">
+              <div className="flex items-center gap-2.5 mb-2">
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-[13px]" style={{ background: p.brandColor }}>
+                  {p.name.slice(0, 1)}
+                </span>
+                <div className="flex-1">
+                  <div className="font-semibold text-[14px]">{p.name}</div>
+                  <div className="text-[11px] muted font-mono">{p.id} · adapter v{p.adapterVersion}</div>
                 </div>
-                <Pill status={p.status.toUpperCase()} />
+                <span className={`chip ${p.adapterRegistered ? 'chip-green' : 'chip-gray'}`}>
+                  {p.adapterRegistered ? 'Adapter live' : 'No adapter'}
+                </span>
               </div>
-
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-white/50 mb-2">Capabilities</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {p.capabilities.map((c) => (
-                    <span key={c} className="chip">{c.replaceAll('_', ' ')}</span>
+              <dl className="text-[12.5px] space-y-1.5">
+                <div className="flex gap-2"><dt className="muted w-32 shrink-0">Auth</dt><dd>{p.authMethod}</dd></div>
+                <div className="flex gap-2"><dt className="muted w-32 shrink-0">Execution</dt><dd>{p.executionMethod}</dd></div>
+                <div className="flex gap-2"><dt className="muted w-32 shrink-0">Rate limits</dt><dd>{p.rateLimits}</dd></div>
+                <div className="flex gap-2"><dt className="muted w-32 shrink-0">Approval</dt><dd>{p.approvalRequired ? 'Required for sends' : 'Not required'}</dd></div>
+              </dl>
+              {p.adapterCapabilities.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {p.adapterCapabilities.map((c) => (
+                    <span key={c} className="chip chip-purple !text-[10px]">{c.replace(/_/g, ' ')}</span>
                   ))}
                 </div>
-              </div>
-
-              <div className="mt-4 space-y-1.5 text-xs text-white/55">
-                <div><span className="text-white/35">Connection: </span><span className="font-mono">{p.connectionType}</span></div>
-                <div><span className="text-white/35">Auth: </span>{p.authMethod}</div>
-                <div><span className="text-white/35">Execution: </span>{p.executionMethod}</div>
-                <div><span className="text-white/35">Rate limits: </span>{p.rateLimits}</div>
-                <div><span className="text-white/35">Approval: </span>{p.approvalRequired ? 'Required by default' : 'Not required'}</div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-white/10 text-xs">
-                {p.adapterRegistered ? (
-                  <span className="text-emerald-300 font-semibold">Adapter registered — {p.adapterCapabilities.length} capabilities live</span>
-                ) : (
-                  <span className="text-txorange font-semibold">Not supported for this connection.</span>
-                )}
-              </div>
+              )}
             </div>
           ))}
         </div>

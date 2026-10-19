@@ -1,213 +1,148 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/client';
+import { useTx } from '@/components/tx-store';
 import { Icon, paths } from '@/components/icons';
-import { Spinner, ErrorBox, Empty, PageHead, Field, ConfirmButton } from '@/components/ui';
+import { PageHead, Btn, Toggle, EmptyState, ErrorBox, Notice, Skeleton } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-interface Status { demoMode: boolean; whatsappConfigured: boolean; openaiConfigured: boolean; anthropicConfigured: boolean; aiProvider: string }
-
-const PERM_INFO: [string, string][] = [
-  ['READ_CONTEXT', 'Platform ka current context parhna'],
-  ['READ_MESSAGES', 'Messages parhna'],
-  ['GENERATE_CONTENT', 'Content generate karna'],
-  ['GENERATE_TEXT', 'Text generate karna'],
-  ['GENERATE_REPLY', 'Reply tayyar karna'],
-  ['INSERT_TEXT', 'Text insert karna (assisted)'],
-  ['SEND_MESSAGE', 'Message bhejna — sensitive, approval-gated'],
-  ['SEARCH', 'Search karna'],
-  ['FORM_FILL', 'Form bharna'],
-  ['UPLOAD', 'File upload — sensitive'],
-  ['POST', 'Post karna — sensitive'],
-  ['DELETE', 'Delete karna — sensitive'],
-  ['SCHEDULE', 'Schedule karna'],
-];
+interface TxStatus {
+  demoMode: boolean; whatsappConfigured: boolean; openaiConfigured: boolean;
+  anthropicConfigured: boolean; aiProvider: string;
+}
 
 export default function SettingsPage() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const { theme, toggleTheme, status } = useTx();
+  const [st, setSt] = useState<TxStatus | null>(status);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [defaults, setDefaults] = useState({ language: 'Roman Urdu', tone: 'friendly' });
+  const [busy, setBusy] = useState(false);
 
-  async function load() {
-    setError('');
-    try {
-      const s = await api('/api/status');
-      setStatus(s);
-      const m = await api('/api/memory?scope=GLOBAL&scopeId=global');
-      const item = (m.items ?? []).find((x: { key: string }) => x.key === 'settings:defaults');
-      if (item) setDefaults({ ...defaults, ...JSON.parse(item.value) });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function saveDefaults() {
-    await api('/api/memory', { method: 'POST', body: { scope: 'GLOBAL', scopeId: 'global', key: 'settings:defaults', value: JSON.stringify(defaults) } });
-    setNotice('Defaults save ho gaye.');
-  }
+  useEffect(() => {
+    api('/api/status').then(setSt).catch(() => {});
+  }, []);
 
   async function exportData() {
-    setError('');
+    setBusy(true);
     try {
-      const [agents, activity, memory, styles, leads] = await Promise.all([
-        api('/api/agents'),
-        api('/api/activity?limit=500'),
-        api('/api/memory?scope=GLOBAL&scopeId=global'),
-        api('/api/styles'),
-        api('/api/outreach'),
+      const [agents, activity, styles] = await Promise.all([
+        api('/api/agents'), api('/api/activity?limit=500'), api('/api/styles'),
       ]);
-      const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), agents: agents.agents, activity: activity.events, memory: memory.items, styles: styles.styles, leads: leads.leads }, null, 2)], { type: 'application/json' });
+      const blob = new Blob(
+        [JSON.stringify({ exportedAt: new Date().toISOString(), agents: agents.agents, activity: activity.events, styles: styles.styles }, null, 2)],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `clintx-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.href = url;
+      a.download = 'clintx-export.json';
       a.click();
-      URL.revokeObjectURL(a.href);
+      URL.revokeObjectURL(url);
+      setNotice('Export download ho gaya.');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
   async function deleteData() {
-    setError('');
-    setNotice('');
+    if (!confirm('Saara local data delete ho jayega (agents, tasks, memory, activity). Pakka?')) return;
     try {
-      const d = await api('/api/settings/data', { method: 'DELETE' });
-      setNotice(`${d.deleted} items delete ho gaye (styles, leads, saved outputs, settings). Agents, tasks aur audit log append-only hain — wo nahi mitayenge.`);
+      await api('/api/settings/data', { method: 'DELETE' });
+      setNotice('Data delete ho gaya. Page reload karein.');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   return (
-    <div>
-      <PageHead title="Settings" sub="Profile, AI provider, defaults aur data controls." />
-      {error && <div className="mb-4"><ErrorBox message={error} onRetry={load} /></div>}
-      {notice && <div className="glass-soft p-3 mb-4 text-sm text-emerald-300">{notice}</div>}
+    <div className="max-w-3xl">
+      <PageHead title="Settings" sub="Appearance, integrations, data controls." />
+      {notice && <div className="mb-3"><Notice msg={notice} onClose={() => setNotice('')} /></div>}
+      <ErrorBox msg={error} onClose={() => setError('')} />
 
-      {!status ? (
-        <Spinner label="Settings load ho rahe hain…" />
-      ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* AI PROVIDER */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-3">AI Provider</h3>
-            <div className="space-y-2 text-sm">
-              {[
-                { name: 'Local (built-in)', desc: 'Koi key nahi chahiye — device par chalta hai.', on: true, active: status.aiProvider === 'local' },
-                { name: 'OpenAI', desc: status.openaiConfigured ? 'Key set hai (server env).' : 'Key set nahi — server env OPENAI_API_KEY chahiye.', on: status.openaiConfigured, active: status.aiProvider === 'openai' },
-                { name: 'Anthropic', desc: status.anthropicConfigured ? 'Key set hai (server env).' : 'Key set nahi — server env ANTHROPIC_API_KEY chahiye.', on: status.anthropicConfigured, active: status.aiProvider === 'anthropic' },
-              ].map((p) => (
-                <div key={p.name} className={`glass-soft p-3 flex items-center justify-between ${p.active ? '!border-txviolet/50' : ''}`}>
-                  <div>
-                    <div className="font-semibold">{p.name} {p.active && <span className="chip ml-1 !border-txviolet/50 text-txviolet">ACTIVE</span>}</div>
-                    <div className="text-xs text-white/50">{p.desc}</div>
-                  </div>
-                  <Icon d={p.on ? paths.check : paths.x} className={`w-5 h-5 ${p.on ? 'text-emerald-400' : 'text-white/30'}`} />
-                </div>
-              ))}
+      <div className="space-y-3">
+        <div className="card card-pad">
+          <h3 className="font-bold text-[14px] mb-3">Appearance</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13.5px] font-semibold">Dark mode</div>
+              <div className="text-[12px] muted">Light default hai — dark bhi available.</div>
             </div>
-            <p className="text-xs text-white/40 mt-3">
-              Keys server environment mein set hoti hain — UI mein kabhi type ya echo nahi hoti.
-            </p>
-          </div>
-
-          {/* DEFAULTS */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-3">Defaults</h3>
-            <div className="space-y-3">
-              <Field label="Default language">
-                <select className="tx-input" value={defaults.language} onChange={(e) => setDefaults({ ...defaults, language: e.target.value })}>
-                  <option>Roman Urdu</option><option>English</option><option>Urdu</option>
-                </select>
-              </Field>
-              <Field label="Default tone">
-                <input className="tx-input" value={defaults.tone} onChange={(e) => setDefaults({ ...defaults, tone: e.target.value })} placeholder="friendly" />
-              </Field>
-              <button className="tx-btn btn-primary text-xs" onClick={saveDefaults}>
-                <Icon d={paths.check} className="w-4 h-4" /> Save defaults
-              </button>
-            </div>
-            <div className="mt-4 pt-3 border-t border-white/10 text-xs text-white/50">
-              WhatsApp: {status.whatsappConfigured ? <span className="text-emerald-300 font-semibold">configured</span> : <span className="text-txorange font-semibold">not configured</span>}
-            </div>
-          </div>
-
-          {/* PERMISSIONS OVERVIEW */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-1">Permissions overview</h3>
-            <p className="text-xs text-white/40 mb-3">Per-agent toggles agent detail page par hain.</p>
-            <div className="space-y-1.5 max-h-64 overflow-y-auto">
-              {PERM_INFO.map(([p, desc]) => (
-                <div key={p} className="glass-soft px-3 py-2 text-xs flex items-center justify-between gap-2">
-                  <span className="font-mono text-white/80">{p}</span>
-                  <span className="text-white/45 text-right">{desc}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* PHASE 2 */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-3">Phase 2</h3>
-            <div className="space-y-2">
-              {[
-                ['Keyboard companion', 'Kisi bhi app mein type karega — Phase 2'],
-                ['Browser extension', 'Web context read + insert — Phase 2'],
-                ['Desktop app', 'Native control center — Phase 2'],
-              ].map(([t, d]) => (
-                <div key={t} className="glass-soft p-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold">{t}</div>
-                    <div className="text-xs text-white/45">{d}</div>
-                  </div>
-                  <span className="chip">Phase 2</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* DEMO MODE */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-3">Data mode</h3>
-            {status.demoMode ? (
-              <div className="text-sm text-white/60">
-                <span className="text-txorange font-semibold">DEMO MODE</span> — data local memory mein hai, server restart par mit jayega.
-                Neon Postgres ka <span className="font-mono">DATABASE_URL</span> set karein aur redeploy karein to go live.
-              </div>
-            ) : (
-              <div className="text-sm text-white/60">
-                <span className="text-emerald-300 font-semibold">LIVE</span> — Postgres connected, data persist ho raha hai.
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2 mt-4">
-              <button className="tx-btn btn-ghost text-xs" onClick={exportData}>
-                <Icon d={paths.download} className="w-4 h-4" /> Export Data (JSON)
-              </button>
-              <ConfirmButton label={<><Icon d={paths.trash} className="w-4 h-4" /> Delete Data</>} confirmLabel="Sab user data delete? Pakka?" onConfirm={deleteData} className="text-xs" />
-            </div>
-            <p className="text-xs text-white/40 mt-3">
-              Delete sirf styles, leads, saved outputs aur settings mitata hai. Agents, tasks aur audit log append-only hain.
-            </p>
-          </div>
-
-          {/* PROFILE */}
-          <div className="glass p-5">
-            <h3 className="font-bold mb-3">Profile</h3>
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-txpurple to-txviolet flex items-center justify-center font-extrabold text-xl">T</div>
-              <div>
-                <div className="font-semibold">CLINT X Owner</div>
-                <div className="text-xs text-white/50 font-mono">user: owner (single-user)</div>
-              </div>
-            </div>
+            <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
           </div>
         </div>
-      )}
+
+        <div className="card card-pad">
+          <h3 className="font-bold text-[14px] mb-3">AI providers</h3>
+          {!st ? <Skeleton className="h-16" /> : (
+            <div className="space-y-2 text-[13px]">
+              <Row label="Active provider" value={st.aiProvider} ok />
+              <Row label="WhatsApp (respond.io)" value={st.whatsappConfigured ? 'Configured' : 'Not configured'} ok={st.whatsappConfigured} />
+              <Row label="OpenAI" value={st.openaiConfigured ? 'Configured' : 'Not configured'} ok={st.openaiConfigured} />
+              <Row label="Anthropic" value={st.anthropicConfigured ? 'Configured' : 'Not configured'} ok={st.anthropicConfigured} />
+              <p className="text-[12px] muted pt-1">
+                Keys Vercel → Project Settings → Environment Variables mein set hoti hain (<span className="font-mono">RESPONDIO_API_KEY</span>, <span className="font-mono">OPENAI_API_KEY</span>, <span className="font-mono">ANTHROPIC_API_KEY</span>) — frontend mein kabhi nahi.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="card card-pad">
+          <h3 className="font-bold text-[14px] mb-2">Demo mode</h3>
+          <p className="text-[13px] muted leading-relaxed">
+            {st?.demoMode
+              ? 'Abhi DEMO MODE chal raha hai — data local hai. Production database ke liye free Neon Postgres banayein aur Vercel mein DATABASE_URL set karein (README mein 2-minute guide hai).'
+              : 'Database connected hai — live mode.'}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Link href="/platforms"><span className="tx-btn btn-ghost btn-sm">Platforms</span></Link>
+            <Link href="/styles"><span className="tx-btn btn-ghost btn-sm">Styles</span></Link>
+          </div>
+        </div>
+
+        <div className="card card-pad">
+          <h3 className="font-bold text-[14px] mb-2">Phase 2 roadmap</h3>
+          <ul className="text-[13px] muted space-y-1.5">
+            <li className="flex gap-2"><Icon d={paths.globe} className="w-4 h-4 mt-0.5 shrink-0" /> Browser extension (Chrome / Edge / Firefox) — Generic Website Agent</li>
+            <li className="flex gap-2"><Icon d={paths.workspace} className="w-4 h-4 mt-0.5 shrink-0" /> Keyboard companion — platform-aware keypads</li>
+            <li className="flex gap-2"><Icon d={paths.zap} className="w-4 h-4 mt-0.5 shrink-0" /> Desktop app + realtime WebSocket</li>
+            <li className="flex gap-2"><Icon d={paths.key} className="w-4 h-4 mt-0.5 shrink-0" /> OAuth connections (Google, etc.)</li>
+          </ul>
+        </div>
+
+        <div className="card card-pad">
+          <h3 className="font-bold text-[14px] mb-3">Data</h3>
+          <div className="flex flex-wrap gap-2">
+            <Btn icon="download" disabled={busy} onClick={exportData}>Export data (JSON)</Btn>
+            <Btn variant="danger" icon="trash" onClick={deleteData}>Delete all data</Btn>
+          </div>
+          <p className="text-[12px] muted mt-2">Export mein agents, activity aur styles ka real data ata hai.</p>
+        </div>
+
+        <div className="card card-pad border-red-200 dark:border-red-500/30">
+          <h3 className="font-bold text-[14px] mb-2 text-red-600 dark:text-red-400">Honesty commitments</h3>
+          <ul className="text-[13px] muted space-y-1.5">
+            <li>· Clint X kabhi fake "Sent" ya "Connected" nahi dikhata.</li>
+            <li>· Approval ke baghair sensitive external action execute nahi hota.</li>
+            <li>· Agents ki memory kabhi auto-merge nahi hoti.</li>
+            <li>· No CAPTCHA / rate-limit / platform-restriction bypass — assisted mode only.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="muted">{label}</span>
+      <span className={`chip ${ok ? 'chip-green' : 'chip-gray'}`}>{value}</span>
     </div>
   );
 }
